@@ -1,0 +1,93 @@
+pipeline {
+    agent any
+
+    environment {
+        IMAGE_NAME = "myapp"
+        CONTAINER_NAME = "myapp-container"
+        REPO_URL = "https://github.com/AtharvPol/NewMJD.git"
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+                echo "Checked out branch: ${env.BRANCH_NAME}"
+            }
+        }
+
+        stage('Select Deployment Server') {
+            steps {
+                script {
+                    def servers = [
+                        prod: "13.203.201.189",
+                        dev: "3.110.104.240",
+                        stage: "13.201.100.138"
+                    ]
+
+                    env.SERVER_IP = servers[env.BRANCH_NAME]
+
+                    if (!env.SERVER_IP) {
+                        error("❌ No server configured for branch: ${env.BRANCH_NAME}")
+                    }
+
+                    echo "Deploying ${env.BRANCH_NAME} → ${env.SERVER_IP}"
+                }
+            }
+        }
+
+        stage('Deploy to EC2') {
+            steps {
+                sh """
+                ssh -o StrictHostKeyChecking=no ec2-user@${SERVER_IP} '
+                    set -e
+
+                    echo "🚀 Deployment started for branch ${BRANCH_NAME}"
+
+                    # Go to project directory
+                    cd ~/NewMJD || git clone ${REPO_URL} ~/NewMJD
+
+                    cd ~/NewMJD
+
+                    # Ensure correct branch
+                    git fetch origin
+                    git checkout ${BRANCH_NAME}
+                    git pull origin ${BRANCH_NAME}
+
+                    # Stop old container
+                    docker stop ${CONTAINER_NAME} || true
+                    docker rm ${CONTAINER_NAME} || true
+
+                    # Remove old image
+                    docker rmi ${IMAGE_NAME}:latest || true
+
+                    # Build new image
+                    docker build -t ${IMAGE_NAME}:latest .
+
+                    # Run new container
+                    docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        -p 80:80 \
+                        ${IMAGE_NAME}:latest
+
+                    echo "✅ Deployment completed"
+                '
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful for ${env.BRANCH_NAME} → ${env.SERVER_IP}"
+        }
+
+        failure {
+            echo "❌ Deployment failed for ${env.BRANCH_NAME}"
+        }
+
+        always {
+            cleanWs()
+        }
+    }
+}
