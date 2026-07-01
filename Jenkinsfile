@@ -39,7 +39,7 @@ pipeline {
         stage('Deploy to EC2') {
             steps {
                 sh """
-                ssh -o StrictHostKeyChecking=no ec2-user@${SERVER_IP} '
+                ssh -o StrictHostKeyChecking=no root@${SERVER_IP} '
                     set -e
 
                     echo "🚀 Deployment started for branch ${BRANCH_NAME}"
